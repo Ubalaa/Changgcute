@@ -1,70 +1,81 @@
-<?php
-header('Content-Type: application/json');
-header("Access-Control-Allow-Origin: *");
+const express = require('express');
+const axios = require('axios');
+const app = express();
 
-function lay_thong_tin_nguoi_dung($dinh_danh, $bang_id = false) {
-    if ($bang_id) {
-        $url = "https://www.tiktok.com/@$dinh_danh";
-    } else {
-        if (substr($dinh_danh, 0, 1) == '@') {
-            $dinh_danh = substr($dinh_danh, 1);
+// Thiết lập header giống PHP
+app.use((req, res, next) => {
+    res.header("Content-Type", "application/json");
+    res.header("Access-Control-Allow-Origin", "*");
+    next();
+});
+
+async function lay_thong_tin_nguoi_dung(dinh_danh) {
+    // Logic xử lý dấu @ giống hệt PHP
+    if (dinh_danh.startsWith('@')) {
+        dinh_danh = dinh_danh.substring(1);
+    }
+    const url = `https://www.tiktok.com/@${dinh_danh}`;
+
+    try {
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+        });
+
+        const html = response.data;
+
+        // Hàm helper để giả lập preg_match_all của PHP
+        const match = (regex) => {
+            const m = html.match(regex);
+            return m ? m[1] : null;
+        };
+
+        const thong_tin = {
+            user_id: match(/"user_id":"(\d+)"/),
+            unique_id: match(/"uniqueId":"(.*?)"/),
+            nickname: match(/"nickname":"(.*?)"/),
+            followers: match(/"followerCount":(\d+)/),
+            following: match(/"followingCount":(\d+)/),
+            likes: match(/"heartCount":(\d+)/),
+            videos: match(/"videoCount":(\d+)/),
+            signature: match(/"signature":"(.*?)"/),
+            verified: match(/"verified":(true|false)/),
+            secUid: match(/"secUid":"(.*?)"/),
+            privateAccount: match(/"privateAccount":(true|false)/),
+            region: match(/"region":"(.*?)"/),
+            heart: match(/"heart":(\d+)/),
+            diggCount: match(/"diggCount":(\d+)/),
+            friendCount: match(/"friendCount":(\d+)/),
+            // Xử lý replace ký tự unicode giống str_replace trong PHP
+            profile_pic: match(/"avatarLarger":"(.*?)"/)?.replace(/\\u002F/g, '/'),
+            tiktok_link: null
+        };
+
+        // Gán link tiktok nếu tìm thấy unique_id
+        if (thong_tin.unique_id) {
+            thong_tin.tiktok_link = `https://www.tiktok.com/@${thong_tin.unique_id}`;
         }
-        $url = "https://www.tiktok.com/@$dinh_danh";
+
+        return thong_tin;
+
+    } catch (error) {
+        return null;
     }
+}
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-    $response = curl_exec($ch);
-    curl_close($ch);
-
-    if ($response !== false) {
-        preg_match_all('/"user_id":"(\d+)"/', $response, $user_id);
-        preg_match_all('/"uniqueId":"(.*?)"/', $response, $unique_id);
-        preg_match_all('/"nickname":"(.*?)"/', $response, $nickname);
-        preg_match_all('/"followerCount":(\d+)/', $response, $followers);
-        preg_match_all('/"followingCount":(\d+)/', $response, $following);
-        preg_match_all('/"heartCount":(\d+)/', $response, $likes);
-        preg_match_all('/"videoCount":(\d+)/', $response, $videos);
-        preg_match_all('/"signature":"(.*?)"/', $response, $signature);
-        preg_match_all('/"verified":(true|false)/', $response, $verified);
-        preg_match_all('/"secUid":"(.*?)"/', $response, $secUid);
-        preg_match_all('/"privateAccount":(true|false)/', $response, $privateAccount);
-        preg_match_all('/"region":"(.*?)"/', $response, $region);
-        preg_match_all('/"heart":(\d+)/', $response, $heart);
-        preg_match_all('/"diggCount":(\d+)/', $response, $diggCount);
-        preg_match_all('/"friendCount":(\d+)/', $response, $friendCount);
-        preg_match_all('/"avatarLarger":"(.*?)"/', $response, $profile_pic);
-
-        $thong_tin = array(
-            'user_id' => $user_id[1][0] ?? null,
-            'unique_id' => $unique_id[1][0] ?? null,
-            'nickname' => $nickname[1][0] ?? null,
-            'followers' => $followers[1][0] ?? null,
-            'following' => $following[1][0] ?? null,
-            'likes' => $likes[1][0] ?? null,
-            'videos' => $videos[1][0] ?? null,
-            'signature' => $signature[1][0] ?? null,
-            'verified' => $verified[1][0] ?? null,
-            'secUid' => $secUid[1][0] ?? null,
-            'privateAccount' => $privateAccount[1][0] ?? null,
-            'region' => $region[1][0] ?? null,
-            'heart' => $heart[1][0] ?? null,
-            'diggCount' => $diggCount[1][0] ?? null,
-            'friendCount' => $friendCount[1][0] ?? null,
-            'profile_pic' => isset($profile_pic[1][0]) ? str_replace('\\u002F', '/', $profile_pic[1][0]) : null,
-            'tiktok_link' => isset($unique_id[1][0]) ? "https://www.tiktok.com/@{$unique_id[1][0]}" : null
-        );
-
-        echo json_encode($thong_tin);
+// Route xử lý: ?username=...
+app.get('/', async (req, res) => {
+    const username = req.query.username;
+    if (username) {
+        const data = await lay_thong_tin_nguoi_dung(username);
+        res.send(JSON.stringify(data));
     } else {
-        echo json_encode(null);
+        res.send(JSON.stringify(null));
     }
-}
+});
 
-if (isset($_GET['username'])) {
-    $dinh_danh = $_GET['username'];
-    lay_thong_tin_nguoi_dung($dinh_danh);
-}
-?>
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server chạy tại cổng ${PORT}`);
+});
