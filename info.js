@@ -1,61 +1,77 @@
 export default async function handler(req, res) {
+  // Thiết lập Header để hỗ trợ CORS và JSON
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const username = req.query.username;
+  const { username } = req.query;
+
   if (!username) {
-    return res.status(400).json({ error: "Thiếu username" });
+    return res.status(400).json({ error: "Vui lòng nhập username" });
   }
 
-  const dinhDanh = username.startsWith("@")
-    ? username.slice(1)
-    : username;
-
-  const url = `https://www.tiktok.com/@${dinhDanh}`;
+  // Loại bỏ ký tự @ nếu người dùng nhập kèm
+  const cleanUsername = username.startsWith("@") ? username.slice(1) : username;
+  const url = `https://www.tiktok.com/@${cleanUsername}`;
 
   try {
     const response = await fetch(url, {
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
       },
     });
 
-    const html = await response.text();
-
-    const match = (regex) => {
-      const m = html.match(regex);
-      return m ? m[1] : null;
-    };
-
-    const avatar = match(/"avatarLarger":"(.*?)"/);
-    const profilePic = avatar ? avatar.replace(/\\u002F/g, "/") : null;
-
-    const thong_tin = {
-      user_id: match(/"user_id":"(\d+)"/),
-      unique_id: match(/"uniqueId":"(.*?)"/),
-      nickname: match(/"nickname":"(.*?)"/),
-      followers: match(/"followerCount":(\d+)/),
-      following: match(/"followingCount":(\d+)/),
-      likes: match(/"heartCount":(\d+)/),
-      videos: match(/"videoCount":(\d+)/),
-      signature: match(/"signature":"(.*?)"/),
-      verified: match(/"verified":(true|false)/),
-      secUid: match(/"secUid":"(.*?)"/),
-      privateAccount: match(/"privateAccount":(true|false)/),
-      region: match(/"region":"(.*?)"/),
-      heart: match(/"heart":(\d+)/),
-      diggCount: match(/"diggCount":(\d+)/),
-      friendCount: match(/"friendCount":(\d+)/),
-      profile_pic: profilePic,
-    };
-
-    if (thong_tin.unique_id) {
-      thong_tin.tiktok_link = `https://www.tiktok.com/@${thong_tin.unique_id}`;
+    if (!response.ok) {
+      throw new Error("Không thể truy cập TikTok");
     }
 
-    return res.status(200).json(thong_tin);
-  } catch (err) {
-    return res.status(500).json({ error: "Không lấy được dữ liệu" });
+    const html = await response.text();
+
+    // Tìm kiếm khối dữ liệu JSON chứa thông tin người dùng trong HTML
+    const jsonRegex = /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application\/json">([\s\S]*?)<\/script>/;
+    const match = html.match(jsonRegex);
+
+    if (!match) {
+      return res.status(404).json({ error: "Không tìm thấy dữ liệu người dùng. Có thể username sai hoặc bị chặn." });
+    }
+
+    const fullData = JSON.parse(match[1]);
+    
+    // Đường dẫn dữ liệu của TikTok thường nằm trong DefaultScope.webapp-user-detail
+    const userData = fullData["__DEFAULT_SCOPE__"]?.["webapp.user-detail"]?.userInfo;
+
+    if (!userData) {
+      return res.status(404).json({ error: "Không tìm thấy thông tin chi tiết người dùng." });
+    }
+
+    const { user, stats } = userData;
+
+    // Chuẩn hóa dữ liệu trả về
+    const result = {
+      user_id: user.id,
+      unique_id: user.uniqueId,
+      nickname: user.nickname,
+      avatar: user.avatarLarger || user.avatarMedium || user.avatarThumb,
+      signature: user.signature,
+      verified: user.verified,
+      region: user.region,
+      privateAccount: user.privateAccount,
+      secUid: user.secUid,
+      followers: stats.followerCount,
+      following: stats.followingCount,
+      likes: stats.heartCount,
+      videos: stats.videoCount,
+      friendCount: stats.friendCount,
+      tiktok_link: `https://www.tiktok.com/@${user.uniqueId}`
+    };
+
+    return res.status(200).json(result);
+
+  } catch (error) {
+    console.error("Error fetching TikTok data:", error);
+    return res.status(500).json({ 
+      error: "Lỗi máy chủ hoặc bị TikTok chặn truy cập (Rate Limit)",
+      details: error.message 
+    });
   }
 }
