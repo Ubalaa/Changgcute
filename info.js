@@ -7,8 +7,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Thiếu username" });
   }
 
-  let dinhDanh = username.startsWith("@")
-    ? username.substring(1)
+  const dinhDanh = username.startsWith("@")
+    ? username.slice(1)
     : username;
 
   const url = `https://www.tiktok.com/@${dinhDanh}`;
@@ -28,6 +28,9 @@ export default async function handler(req, res) {
       return m ? m[1] : null;
     };
 
+    const avatar = match(/"avatarLarger":"(.*?)"/);
+    const profilePic = avatar ? avatar.replace(/\\u002F/g, "/") : null;
+
     const thong_tin = {
       user_id: match(/"user_id":"(\d+)"/),
       unique_id: match(/"uniqueId":"(.*?)"/),
@@ -44,7 +47,7 @@ export default async function handler(req, res) {
       heart: match(/"heart":(\d+)/),
       diggCount: match(/"diggCount":(\d+)/),
       friendCount: match(/"friendCount":(\d+)/),
-      profile_pic: match(/"avatarLarger":"(.*?)"/)?.replace(/\\u002F/g, "/"),
+      profile_pic: profilePic,
     };
 
     if (thong_tin.unique_id) {
